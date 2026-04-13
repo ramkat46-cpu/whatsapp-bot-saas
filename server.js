@@ -9,8 +9,7 @@ import fs from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import QRCode from "qrcode"
-import { useEffect, useState } from "react"
+
 dotenv.config()
 
 const app = express()
@@ -36,16 +35,6 @@ const getClients = () => {
 
 const saveClients = (data) =>
   fs.writeFileSync('clients.json', JSON.stringify(data, null, 2))
-
-// ================= GOOGLE =================
-const auth = new google.auth.JWT(
-  process.env.GOOGLE_CLIENT_EMAIL,
-  null,
-  process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-  ['https://www.googleapis.com/auth/spreadsheets']
-)
-
-const sheets = google.sheets({ version: 'v4', auth })
 
 // ================= WHATSAPP =================
 async function startClient(client) {
@@ -77,7 +66,7 @@ async function startClient(client) {
   }
 }
 
-// ================= SETUP (🔥 FIXED) =================
+// ================= SETUP (QR FIXED) =================
 app.post('/setup', async (req, res) => {
   try {
     const { name, prices, sheetId } = req.body
@@ -105,30 +94,26 @@ app.post('/setup', async (req, res) => {
       browser: ['Windows', 'Chrome', '10']
     })
 
-    let qrCode = null
+    sock.ev.on('creds.update', saveCreds)
 
+    // 🔥 WAIT FOR QR AND SEND IT
     sock.ev.on('connection.update', (update) => {
       const { qr, connection } = update
 
       if (qr) {
         console.log('📱 QR GENERATED')
-        qrCode = qr
+
+        // send QR ONCE
+        res.json({
+          success: true,
+          qr: qr
+        })
       }
 
       if (connection === 'open') {
         console.log(`✅ ${newClient.name} connected`)
       }
     })
-
-    sock.ev.on('creds.update', saveCreds)
-
-    // ⏳ wait for QR to generate
-    setTimeout(() => {
-      res.json({
-        success: true,
-        qr: qrCode
-      })
-    }, 3000)
 
     startClient(newClient)
 
