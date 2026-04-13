@@ -1,0 +1,238 @@
+// FULL PROJECT STRUCTURE
+// ======================
+// package.json
+// server.js
+// clients.json
+// db.json
+// .env
+// README.md
+// /admin.html
+
+// ====================== package.json ======================
+{
+  "name": "whatsapp-bot-saas",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.0",
+    "axios": "^1.6.0",
+    "dotenv": "^16.0.0",
+    "express": "^4.18.2",
+    "googleapis": "^133.0.0",
+    "lowdb": "^6.0.1",
+    "uuid": "^9.0.0"
+  }
+}
+
+// ====================== .env ======================
+PORT=3000
+OWNER_NUMBER=27700000000
+ADMIN_PASSWORD=admin123
+GOOGLE_CLIENT_EMAIL=your-service-account@project.iam.gserviceaccount.com
+GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYOURKEY\n-----END PRIVATE KEY-----\n"
+
+// ====================== clients.json ======================
+[]
+
+// ====================== db.json ======================
+{
+  "sessions": {}
+}
+
+// ====================== server.js ======================
+import express from 'express'
+import dotenv from 'dotenv'
+import { makeWASocket, useMultiFileAuthState } from '@whiskeysockets/baileys'
+import { google } from 'googleapis'
+import { Low } from 'lowdb'
+import { JSONFile } from 'lowdb/node'
+import fs from 'fs'
+import { v4 as uuidv4 } from 'uuid'
+
+dotenv.config()
+const app = express()
+app.use(express.json())
+
+// DB setup
+const db = new Low(new JSONFile('db.json'))
+await db.read()
+db.data ||= { sessions: {} }
+
+// Load clients
+const getClients = () => JSON.parse(fs.readFileSync('clients.json'))
+const saveClients = (data) => fs.writeFileSync('clients.json', JSON.stringify(data, null, 2))
+
+// Google Sheets setup
+const auth = new google.auth.JWT(
+  process.env.GOOGLE_CLIENT_EMAIL,
+  null,
+  process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+  ['https://www.googleapis.com/auth/spreadsheets']
+)
+
+const sheets = google.sheets({ version: 'v4', auth })
+
+// Rate limiting
+const rateLimit = {}
+function isRateLimited(user) {
+  const now = Date.now()
+  if (!rateLimit[user]) rateLimit[user] = []
+  rateLimit[user] = rateLimit[user].filter(t => now - t < 10000)
+  if (rateLimit[user].length >= 5) return true
+  rateLimit[user].push(now)
+  return false
+}
+
+// WhatsApp connection per client
+async function startClient(client) {
+  const { state, saveCreds } = await useMultiFileAuthState(`auth_${client.id}`)
+  const sock = makeWASocket({ auth: state })
+
+  sock.ev.on('creds.update', saveCreds)
+
+  sock.ev.on('messages.upsert', async ({ messages }) => {
+    const msg = messages[0]
+    if (!msg.message) return
+
+    const from = msg.key.remoteJid
+    const text = msg.message.conversation || msg.message.extendedTextMessage?.text
+
+    if (isRateLimited(from)) return
+
+    let session = db.data.sessions[from] || { step: 0, data: {} }
+
+    const send = (t) => sock.sendMessage(from, { text: t })
+
+    if (text === '0') session = { step: 0, data: {} }
+
+    switch (session.step) {
+      case 0:
+        await send(`Welcome to ${client.name} 👋 Reply with a number:\n1 - Book appointment\n2 - View price list\n3 - Talk to owner`)
+        session.step = 1
+        break
+
+      case 1:
+        if (text === '1') {
+          await send('What service do you need?')
+          session.step = 2
+        } else if (text === '2') {
+          await send(client.prices)
+        } else if (text === '3') {
+          await send('Connecting you to the owner... they will reply shortly 🙏')
+          await sock.sendMessage(`${process.env.OWNER_NUMBER}@s.whatsapp.net`, { text: `New customer: ${from}` })
+        } else {
+          await send('Please reply with 1, 2 or 3')
+        }
+        break
+
+      case 2:
+        session.data.service = text
+        await send('What date and time works for you?')
+        session.step = 3
+        break
+
+      case 3:
+        session.data.datetime = text
+        await send('What is your name?')
+        session.step = 4
+        break
+
+      case 4:
+        session.data.name = text
+        await send('Perfect! Your booking is confirmed ✅ We will see you then. Reply 0 to go back to main menu.')
+
+        // Save to Google Sheets
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: client.sheetId,
+          range: 'Sheet1!A:F',
+          valueInputOption: 'USER_ENTERED',
+          requestBody: {
+            values: [[
+              new Date().toISOString(),
+              from,
+              session.data.name,
+              session.data.service,
+              session.data.datetime,
+              'New'
+            ]]
+          }
+        })
+
+        session = { step: 0, data: {} }
+        break
+    }
+
+    db.data.sessions[from] = session
+    await db.write()
+  })
+}
+
+// Setup route
+app.post('/setup', async (req, res) => {
+  const { name, prices, sheetId } = req.body
+  const clients = getClients()
+
+  const newClient = { id: uuidv4(), name, prices, sheetId }
+  clients.push(newClient)
+  saveClients(clients)
+
+  await startClient(newClient)
+
+  res.json({ success: true })
+})
+
+// Admin dashboard
+app.get('/admin', (req, res) => {
+  const password = req.query.password
+  if (password !== process.env.ADMIN_PASSWORD) return res.send('Unauthorized')
+
+  res.sendFile(process.cwd() + '/admin.html')
+})
+
+app.listen(process.env.PORT, () => console.log('Server running'))
+
+// ====================== admin.html ======================
+<!DOCTYPE html>
+<html>
+<head>
+<title>Admin</title>
+</head>
+<body>
+<h2>Bookings Dashboard</h2>
+<p>Export handled via Google Sheets</p>
+</body>
+</html>
+
+// ====================== README.md ======================
+# WhatsApp Booking Bot SaaS
+
+## Setup
+1. Install Node.js
+2. Run: npm install
+3. Fill .env
+4. Start: npm start
+
+## Add client
+POST /setup
+{
+ "name": "Business",
+ "prices": "Haircut R100",
+ "sheetId": "GOOGLE_SHEET_ID"
+}
+
+## Railway Deploy
+- Create project
+- Add env vars
+- Deploy
+
+## WhatsApp QR
+- First run shows QR in console
+- Scan with WhatsApp
+
+## Google Sheets
+- Enable API
+- Create service account
+- Share sheet with email
