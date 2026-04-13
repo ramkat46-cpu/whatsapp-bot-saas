@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import QRCode from "qrcode";
 
 export default function SetupForm() {
   const [form, setForm] = useState({
@@ -8,7 +9,15 @@ export default function SetupForm() {
   });
 
   const [code, setCode] = useState<string | null>(null);
+  const [qrImage, setQrImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // 🔥 Convert QR string → image
+  useEffect(() => {
+    if (code) {
+      QRCode.toDataURL(code).then(setQrImage);
+    }
+  }, [code]);
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
@@ -25,10 +34,11 @@ export default function SetupForm() {
 
       const data = await res.json();
 
-      if (data.code) {
-        setCode(data.code);
+      // 🔥 NOW EXPECT QR INSTEAD OF CODE
+      if (data.qr) {
+        setCode(data.qr);
       } else {
-        alert("No pairing code returned");
+        alert("QR not generated");
       }
     } catch (err) {
       console.error(err);
@@ -78,10 +88,11 @@ export default function SetupForm() {
         </button>
       </form>
 
-      {code && (
+      {/* 🔥 QR DISPLAY */}
+      {qrImage && (
         <div className="mt-6 text-center bg-gray-100 p-4 rounded">
-          <h2 className="text-xl font-bold">Your Pairing Code:</h2>
-          <p className="text-2xl mt-2 font-mono">{code}</p>
+          <h2 className="text-xl font-bold">Scan QR Code:</h2>
+          <img src={qrImage} alt="QR Code" className="mx-auto mt-4" />
           <p className="mt-2 text-sm">
             WhatsApp → Settings → Linked Devices → Link a Device
           </p>
