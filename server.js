@@ -97,7 +97,6 @@ app.post('/setup', async (req, res) => {
     clients.push(newClient)
     saveClients(clients)
 
-    // 🔥 AUTH STATE
     const { state, saveCreds } = await useMultiFileAuthState(`auth_${newClient.id}`)
 
     const sock = makeWASocket({
@@ -105,20 +104,32 @@ app.post('/setup', async (req, res) => {
       browser: ['Windows', 'Chrome', '10']
     })
 
-    // 🔥 FORCE PAIRING CODE (NO CHECK)
-    console.log('⚡ Requesting pairing code...')
-    const pairingCode = await sock.requestPairingCode(process.env.PAIRING_NUMBER)
-    console.log('📱 CODE:', pairingCode)
+    let qrCode = null
+
+    sock.ev.on('connection.update', (update) => {
+      const { qr, connection } = update
+
+      if (qr) {
+        console.log('📱 QR GENERATED')
+        qrCode = qr
+      }
+
+      if (connection === 'open') {
+        console.log(`✅ ${newClient.name} connected`)
+      }
+    })
 
     sock.ev.on('creds.update', saveCreds)
 
-    // start bot after pairing request
-    startClient(newClient)
+    // ⏳ wait for QR to generate
+    setTimeout(() => {
+      res.json({
+        success: true,
+        qr: qrCode
+      })
+    }, 3000)
 
-    res.json({
-      success: true,
-      code: pairingCode
-    })
+    startClient(newClient)
 
   } catch (err) {
     console.error(err)
