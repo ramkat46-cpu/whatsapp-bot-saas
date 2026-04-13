@@ -9,7 +9,8 @@ import fs from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 import path from 'path'
 import { fileURLToPath } from 'url'
-
+import QRCode from "qrcode"
+import { useEffect, useState } from "react"
 dotenv.config()
 
 const app = express()
