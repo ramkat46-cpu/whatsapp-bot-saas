@@ -76,7 +76,7 @@ async function startClient(client) {
   }
 }
 
-// ================= SETUP (FIXED) =================
+// ================= SETUP (🔥 FIXED) =================
 app.post('/setup', async (req, res) => {
   try {
     const { name, prices, sheetId } = req.body
@@ -97,6 +97,7 @@ app.post('/setup', async (req, res) => {
     clients.push(newClient)
     saveClients(clients)
 
+    // 🔥 AUTH STATE
     const { state, saveCreds } = await useMultiFileAuthState(`auth_${newClient.id}`)
 
     const sock = makeWASocket({
@@ -104,16 +105,14 @@ app.post('/setup', async (req, res) => {
       browser: ['Windows', 'Chrome', '10']
     })
 
-    let pairingCode = null
-
-    if (!sock.authState.creds.registered) {
-      console.log('⚡ Requesting pairing code...')
-      pairingCode = await sock.requestPairingCode(process.env.PAIRING_NUMBER)
-      console.log('📱 CODE:', pairingCode)
-    }
+    // 🔥 FORCE PAIRING CODE (NO CHECK)
+    console.log('⚡ Requesting pairing code...')
+    const pairingCode = await sock.requestPairingCode(process.env.PAIRING_NUMBER)
+    console.log('📱 CODE:', pairingCode)
 
     sock.ev.on('creds.update', saveCreds)
 
+    // start bot after pairing request
     startClient(newClient)
 
     res.json({
