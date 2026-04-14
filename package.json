@@ -1,14 +1,20 @@
 {
-  "name": "whatsapp-bot-saas",
+  "name": "grace-whatsapp-bot",
   "version": "1.0.0",
   "type": "module",
   "main": "server.js",
+
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
     "start": "node server.js"
   },
+
   "engines": {
     "node": ">=18"
   },
+
   "dependencies": {
     "@radix-ui/react-toast": "^1.2.15",
     "@radix-ui/react-tooltip": "^1.2.8",
@@ -34,6 +40,7 @@
     "tailwind-merge": "^3.5.0",
     "uuid": "^9.0.0"
   },
+
   "devDependencies": {
     "@vitejs/plugin-react-swc": "^4.3.0",
     "autoprefixer": "^10.4.27",
